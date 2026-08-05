@@ -14,5 +14,6 @@ pandas==2.2.3
 python-dotenv==1.0.0
 # Optional audio ML helpers
 torchaudio==2.2.1
+httpx>=0.23.0
 # NOTE: Install torch separately with the correct CUDA variant for your environment.
 # Example: pip install torch --index-url https://download.pytorch.org/whl/cu124

@@ -4,65 +4,408 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>RLTA Trainer App</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
     <style>
-      body { font-family: Arial, sans-serif; margin: 24px; }
-      .section { margin-bottom: 24px; padding: 16px; border: 1px solid #ccc; border-radius: 8px; }
-      .section h2 { margin-top: 0; }
-      label, input, button, select { display: block; margin: 8px 0; }
-      button { padding: 8px 12px; }
-      input, select { width: 100%; max-width: 400px; }
-      .status { font-weight: bold; }
+      body { font-family: Inter, Arial, sans-serif; background: #f5f7fb; color: #111827; margin: 0; padding: 0; }
+      #app { max-width: 1200px; margin: 0 auto; padding: 24px; }
+      header { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 16px; align-items: center; }
+      header h1 { margin: 0; font-size: 2rem; }
+      .grid { display: grid; gap: 20px; grid-template-columns: 1fr; }
+      .card { background: #ffffff; border-radius: 24px; box-shadow: 0 18px 60px rgba(15, 23, 42, 0.08); padding: 24px; }
+      .card h2 { margin-top: 0; font-size: 1.2rem; }
+      label { display: block; margin: 16px 0 8px; font-weight: 700; }
+      input, select, button, textarea { width: 100%; font: inherit; }
+      input, select, textarea { border: 1px solid #d1d5db; border-radius: 14px; padding: 12px 14px; background: #fff; color: #111827; }
+      select { appearance: none; }
+      button { border: none; border-radius: 14px; padding: 14px 18px; cursor: pointer; background: #2563eb; color: #fff; font-weight: 700; transition: background 0.18s ease, transform 0.18s ease; }
+      button:hover { background: #1d4ed8; transform: translateY(-1px); }
+      button.secondary { background: #e2e8f0; color: #111827; }
+      .status-grid { display: grid; gap: 12px; grid-template-columns: 1fr 1fr; }
+      .status-item { display: flex; justify-content: space-between; align-items: center; padding: 14px; background: #f8fafc; border-radius: 14px; }
+      .badge { padding: 6px 12px; border-radius: 999px; font-size: 0.82rem; font-weight: 700; }
+      .badge.green { background: #ecfdf5; color: #166534; }
+      .badge.red { background: #fef2f2; color: #991b1b; }
+      .badge.yellow { background: #fef3c7; color: #92400e; }
+      .log-container { min-height: 240px; background: #0f172a; color: #e2e8f0; border-radius: 18px; padding: 18px; overflow-y: auto; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 0.95rem; line-height: 1.5; }
+      .alert { background: #eff6ff; border-left: 4px solid #3b82f6; color: #1e40af; padding: 12px 16px; border-radius: 14px; margin-bottom: 18px; }
+      .alert.success { background: #dcfce7; border-left-color: #16a34a; color: #14532d; }
+      .alert.error { background: #fee2e2; border-left-color: #b91c1c; color: #7f1d1d; }
+      .small-note { color: #475569; font-size: 0.94rem; margin-top: 8px; }
+      .form-row { display: grid; gap: 14px; }
+      .btn-row { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 18px; }
+      .btn-row button { width: auto; }
+      @media (max-width: 760px) { .status-grid { grid-template-columns: 1fr; } }
     </style>
   </head>
   <body>
-    <h1>RLTA Trainer App</h1>
-    <div class="section">
-      <h2>Status</h2>
-      <p>WSL läuft: <span class="status">{{ 'Ja' if wsl_running else 'Nein' }}</span></p>
-      <p>CUDA verfügbar: <span class="status">{{ 'Ja' if cuda_available else 'Nein' }}</span></p>
-      <p>GPU VRAM: <span class="status">{{ gpu_vram if gpu_vram else 'Unbekannt' }} MB</span></p>
+    <div id="app">
+      <header>
+        <div>
+          <h1>RLTA Trainer</h1>
+          <p style="margin: 6px 0 0; color: #475569;">Vue.js Dashboard mit Live-Training-Logs und interaktiven Controls.</p>
+        </div>
+        <button class="secondary" @click="refreshAll">Aktualisieren</button>
+      </header>
+
+      <section class="grid">
+        <div class="card">
+          <h2>Systemstatus</h2>
+          <div class="status-grid">
+            <div class="status-item"><span>WSL</span><span :class="['badge', status.wsl_running ? 'green' : 'red']" v-text="status.wsl_running ? 'Ja' : 'Nein'"></span></div>
+            <div class="status-item"><span>CUDA</span><span :class="['badge', status.cuda_available ? 'green' : 'red']" v-text="status.cuda_available ? 'Ja' : 'Nein'"></span></div>
+            <div class="status-item"><span>GPU VRAM</span><span :class="['badge', status.gpu_vram !== null ? 'green' : 'red']" v-text="status.gpu_vram !== null ? status.gpu_vram + ' MB' : 'Unbekannt'"></span></div>
+            <div class="status-item"><span>RAVE CLI</span><span :class="['badge', status.rave_available ? 'green' : 'red']" v-text="status.rave_available ? 'Verfügbar' : 'Nicht verfügbar'"></span></div>
+            <div class="status-item"><span>Training</span><span :class="['badge', status.training_status?.running ? 'green' : status.training_status?.status === 'completed' ? 'yellow' : 'red']" v-text="status.training_status?.status || 'idle'"></span></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="grid">
+        <div class="card">
+          <h2>Preprocessing</h2>
+          <div class="status-grid" style="margin-bottom: 16px;">
+            <div class="status-item">
+              <span>Preprocessing Status</span>
+              <span :class="['badge', preprocessMessageType === 'success' ? 'green' : preprocessMessageType === 'error' ? 'red' : 'yellow']" v-text="preprocessMessage ? (preprocessMessageType === 'success' ? 'Erfolgreich' : preprocessMessageType === 'error' ? 'Fehler' : 'Warten') : 'Idle'"></span>
+            </div>
+          </div>
+          <div class="form-row">
+            <label for="dataset_path">Dataset-Pfad</label>
+            <input id="dataset_path" v-model="preprocessForm.dataset_path" placeholder="Wähle Ordner oder gib Pfad ein" />
+            <button class="secondary" type="button" @click="pickFolder('dataset')">Lokalen Dataset-Ordner wählen</button>
+            <input ref="datasetFolder" type="file" webkitdirectory directory multiple style="display:none" @change="onDatasetFolderPick" />
+
+            <label for="target_path">Zielpfad</label>
+            <input id="target_path" v-model="preprocessForm.target_path" placeholder="processed" />
+            <button class="secondary" type="button" @click="pickFolder('target')">Zielordner wählen</button>
+            <input ref="targetFolder" type="file" webkitdirectory directory multiple style="display:none" @change="onTargetFolderPick" />
+          </div>
+          <div class="btn-row">
+            <button type="button" @click="runPreprocessing">Preprocessing starten</button>
+          </div>
+          <div v-if="preprocessMessage" :class="['alert', preprocessMessageType === 'success' ? 'success' : preprocessMessageType === 'error' ? 'error' : '']" v-text="preprocessMessage"></div>
+          <p class="small-note">Verwende lokale Ordnerauswahl für Einfachheit. Bei Bedarf lässt sich der Pfad manuell anpassen.</p>
+          <div class="log-container" style="margin-top: 16px;">
+            <div v-if="preprocessLogs.length === 0" style="opacity: 0.7;">Keine Preprocessing-Logs vorhanden.</div>
+            <div v-for="(line, index) in preprocessLogs" :key="index" v-text="line"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="grid">
+        <div class="card">
+          <h2>Training</h2>
+          <div class="alert">Vor dem Training bitte Preprocessing ausführen. Während das Training läuft, erscheinen hier Live-Logs.</div>
+          <div class="form-row">
+            <label for="model_name">Trainingsmodell</label>
+            <select id="model_name" v-model="trainForm.model_name" required>
+              <option value="" disabled>Wähle ein Modell</option>
+              <option v-for="model in trainingModels" :key="model.name" :value="model.name" v-text="model.label"></option>
+            </select>
+
+            <label for="preprocessed_path">Vorverarbeiteter Ordner</label>
+            <input id="preprocessed_path" v-model="trainForm.preprocessed_path" placeholder="processed" />
+            <button class="secondary" type="button" @click="pickFolder('preprocessed')">Vorverarbeiteten Ordner wählen</button>
+            <input ref="preprocessedFolder" type="file" webkitdirectory directory multiple style="display:none" @change="onPreprocessedFolderPick" />
+
+            <label for="use_rave">Echtes RAVE Training</label>
+            <select id="use_rave" v-model="trainForm.use_rave">
+              <option :value="false">Simulator</option>
+              <option :value="true">RAVE CLI</option>
+            </select>
+
+            <label for="model_output_path">Trainiertes Modell speichern unter</label>
+            <input id="model_output_path" v-model="trainForm.model_output_path" placeholder="trained_models/model.pt" />
+            <button class="secondary" type="button" @click="pickFolder('trained_output')">Ausgabeordner wählen</button>
+            <input ref="trainedOutputFolder" type="file" webkitdirectory directory multiple style="display:none" @change="onTrainedOutputFolderPick" />
+
+            <label for="batch_size">Batch-Größe</label>
+            <input id="batch_size" type="number" v-model.number="trainForm.batch_size" min="1" />
+
+            <label for="epochs">Epochen</label>
+            <input id="epochs" type="number" v-model.number="trainForm.epochs" min="1" />
+
+            <label for="learning_rate">Learning Rate</label>
+            <input id="learning_rate" type="number" step="0.0001" v-model.number="trainForm.learning_rate" />
+
+            <label for="latent_size">Latent Dimension</label>
+            <input id="latent_size" type="number" v-model.number="trainForm.latent_size" min="2" max="64" />
+            <p class="small-note">Sweet Spot für Musik/Gesten: 8–16. Max 64 für höchste Qualität, aber schwerer zu steuern.</p>
+          </div>
+          <div class="btn-row">
+            <button @click="startTraining" :disabled="trainingBusy">Training starten</button>
+            <button class="secondary" @click="stopTraining" :disabled="!status.training_status?.running">Training stoppen</button>
+          </div>
+          <p class="small-note">Wähle ein Modell aus der Liste und bestätige den vorverarbeiteten Dataset-Ordner.</p>
+          <div v-if="trainingMessage" :class="['alert', trainingMessageType === 'success' ? 'success' : trainingMessageType === 'error' ? 'error' : '']" v-text="trainingMessage"></div>
+          <div class="log-container" style="margin-top: 16px;">
+            <div v-if="logs.length === 0" style="opacity: 0.7;">Keine Logs vorhanden. Starte ein Training, um Echtzeit-Output zu sehen.</div>
+            <div v-for="(line, index) in logs" :key="index" v-text="line"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="grid">
+        <div class="card">
+          <h2>Export</h2>
+          <div class="form-row">
+            <label for="model_path">Modellpfad</label>
+            <select id="model_path" v-model="exportForm.model_path">
+              <option value="">Wähle ein vorhandenes Modell</option>
+              <option v-for="file in modelFiles" :key="file" :value="file" v-text="file"></option>
+            </select>
+            <button class="secondary" type="button" @click="pickFile('model')">Lokale Modell-Datei wählen</button>
+            <input ref="modelFile" type="file" accept=".pt,.pth" style="display:none" @change="onModelFilePick" />
+
+            <label for="output_path">Output-Ziel</label>
+            <input id="output_path" v-model="exportForm.output_path" placeholder="exported_model.nm" />
+            <button class="secondary" type="button" @click="pickFolder('export')">Zielordner wählen</button>
+            <input ref="outputFolder" type="file" webkitdirectory directory multiple style="display:none" @change="onOutputFolderPick" />
+          </div>
+          <div class="btn-row">
+            <button @click="runExport">Export starten</button>
+          </div>
+        </div>
+      </section>
     </div>
-    <div class="section">
-      <h2>Training</h2>
-      <form action="/api/train" method="post">
-        <label for="model_name">Modellname</label>
-        <input id="model_name" name="model_name" value="rave_mini" />
 
-        <label for="batch_size">Batch-Größe</label>
-        <input id="batch_size" name="batch_size" type="number" value="4" min="1" />
+    <script>
+      const { createApp } = Vue;
+      createApp({
+        data() {
+          return {
+            status: { wsl_running: false, cuda_available: false, gpu_vram: null, rave_available: false, training_status: { status: 'idle' } },
+            trainingModels: [],
+            modelFiles: [],
+            trainForm: { model_name: '', preprocessed_path: 'processed', model_output_path: 'trained_models/model.pt', use_rave: false, batch_size: 4, epochs: 3, learning_rate: 0.0002, latent_size: 16 },
+            preprocessForm: { dataset_path: 'dataset', target_path: 'processed', dataset_files: [] },
+            exportForm: { model_path: 'model.pt', output_path: 'exported_model.nm', model_file: null },
+            preprocessLogs: [],
+            logs: [],
+            message: '',
+            messageType: 'info',
+            trainingMessage: '',
+            trainingMessageType: 'info',
+            preprocessMessage: '',
+            preprocessMessageType: 'info',
+            trainingBusy: false,
+            pollInterval: null,
+          };
+        },
+        mounted() {
+          this.refreshAll();
+          this.pollInterval = setInterval(this.pollUpdates, 2000);
+        },
+        beforeUnmount() {
+          clearInterval(this.pollInterval);
+        },
+        methods: {
+          async fetchJson(url, options = {}) {
+            const response = await fetch(url, options);
+            if (!response.ok) {
+              const text = await response.text();
+              throw new Error(text || response.statusText);
+            }
+            return response.json();
+          },
+          getFolderPath(files) {
+            if (!files.length) return '';
+            const file = files[0];
+            return file.path || file.webkitRelativePath?.split('/')[0] || file.name;
+          },
+          async refreshAll() {
+            try {
+              await Promise.all([this.loadStatus(), this.loadModels(), this.loadLogs(), this.loadPreprocessLogs()]);
+            } catch (error) {
+              this.message = error.message || 'Fehler beim Laden der Daten.';
+              this.messageType = 'error';
+            }
+          },
+          async loadStatus() {
+            try {
+              const data = await this.fetchJson('/api/status');
+              this.status = data;
+            } catch (error) {
+              throw new Error('Status konnte nicht geladen werden: ' + error.message);
+            }
+          },
+          async loadModels() {
+            try {
+              const data = await this.fetchJson('/api/models');
+              this.trainingModels = data.training_models || [];
+              this.modelFiles = data.model_files || [];
+              this.status.rave_available = data.rave_available;
+            } catch (error) {
+              throw new Error('Modelle konnten nicht geladen werden: ' + error.message);
+            }
+          },
+          async loadLogs() {
+            try {
+              const data = await this.fetchJson('/api/training-logs');
+              this.logs = data.logs || [];
+            } catch (error) {
+              console.warn('Logs konnten nicht geladen werden:', error);
+            }
+          },
+          async loadPreprocessLogs() {
+            try {
+              const data = await this.fetchJson('/api/preprocess-logs');
+              this.preprocessLogs = data.logs || [];
+            } catch (error) {
+              console.warn('Preprocessing-Logs konnten nicht geladen werden:', error);
+            }
+          },
+          async pollUpdates() {
+            try {
+              await this.loadStatus();
+              if (this.status.training_status?.running) {
+                await this.loadLogs();
+              }
+            } catch (err) {
+              console.warn('Polling error', err);
+            }
+          },
+          async startTraining() {
+            if (!this.trainForm.model_name) {
+              this.message = 'Bitte wähle ein Trainingsmodell aus.';
+              this.messageType = 'error';
+              return;
+            }
+            if (this.trainForm.use_rave && !this.status.rave_available) {
+              this.message = 'RAVE CLI ist nicht verfügbar. Bitte prüfen Sie den Systemstatus oder verwenden Sie den Simulator.';
+              this.messageType = 'error';
+              return;
+            }
+            this.trainingBusy = true;
+            this.trainingMessage = '';
+            try {
+              const formData = new FormData();
+              formData.append('model_name', this.trainForm.model_name);
+              formData.append('preprocessed_path', this.trainForm.preprocessed_path);
+              formData.append('model_output_path', this.trainForm.model_output_path);
+              formData.append('batch_size', this.trainForm.batch_size);
+              formData.append('epochs', this.trainForm.epochs);
+              formData.append('learning_rate', this.trainForm.learning_rate);
+              formData.append('use_rave', this.trainForm.use_rave);
+              formData.append('latent_size', this.trainForm.latent_size);
+              const result = await this.fetchJson('/api/train', { method: 'POST', body: formData });
+              this.trainingMessage = result.job?.message || 'Training gestartet.';
+              this.trainingMessageType = 'success';
+              await this.refreshAll();
+            } catch (error) {
+              this.trainingMessage = error.message;
+              this.trainingMessageType = 'error';
+            } finally {
+              this.trainingBusy = false;
+            }
+          },
+          async stopTraining() {
+            try {
+              const result = await this.fetchJson('/api/train/stop', { method: 'POST' });
+              this.message = 'Training gestoppt.';
+              this.messageType = 'success';
+              await this.loadStatus();
+              await this.loadLogs();
+            } catch (error) {
+              this.message = error.message;
+              this.messageType = 'error';
+            }
+          },
+          async runPreprocessing() {
+            this.preprocessMessage = '';
+            this.preprocessMessageType = 'info';
+            if (!this.preprocessForm.dataset_files.length && !this.preprocessForm.dataset_path.trim()) {
+              this.preprocessMessage = 'Bitte wähle einen Dataset-Ordner oder gib einen gültigen Pfad ein.';
+              this.preprocessMessageType = 'error';
+              return;
+            }
 
-        <label for="epochs">Epochen</label>
-        <input id="epochs" name="epochs" type="number" value="3" min="1" />
-
-        <label for="learning_rate">Learning Rate</label>
-        <input id="learning_rate" name="learning_rate" type="number" step="0.0001" value="0.0002" />
-
-        <button type="submit">Training starten</button>
-      </form>
-    </div>
-    <div class="section">
-      <h2>Preprocessing</h2>
-      <form action="/api/preprocess" method="post">
-        <label for="dataset_path">Dataset-Pfad</label>
-        <input id="dataset_path" name="dataset_path" value="dataset" />
-
-        <label for="target_path">Zielpfad</label>
-        <input id="target_path" name="target_path" value="processed" />
-
-        <button type="submit">Preprocessing starten</button>
-      </form>
-    </div>
-    <div class="section">
-      <h2>Export</h2>
-      <form action="/api/export" method="post">
-        <label for="model_path">Modellpfad</label>
-        <input id="model_path" name="model_path" value="model.pt" />
-
-        <label for="output_path">Zielpfad</label>
-        <input id="output_path" name="output_path" value="exported_model.nm" />
-
-        <button type="submit">Export starten</button>
-      </form>
-    </div>
+            const formData = new FormData();
+            formData.append('dataset_path', this.preprocessForm.dataset_path);
+            formData.append('target_path', this.preprocessForm.target_path);
+            if (this.preprocessForm.dataset_files.length) {
+              this.preprocessForm.dataset_files.forEach(file => formData.append('dataset_files', file));
+            }
+            try {
+              const result = await this.fetchJson('/api/preprocess', { method: 'POST', body: formData });
+              this.preprocessMessage = `Preprocessing abgeschlossen (${result.files} Dateien).`;
+              this.preprocessMessageType = 'success';
+              this.trainForm.preprocessed_path = this.preprocessForm.target_path;
+              await Promise.all([this.loadStatus(), this.loadPreprocessLogs()]);
+            } catch (error) {
+              this.preprocessMessage = error.message;
+              this.preprocessMessageType = 'error';
+            }
+          },
+          async runExport() {
+            if (!this.exportForm.model_path && !this.exportForm.model_file) {
+              this.message = 'Bitte wählen Sie eine Modell-Datei oder geben Sie einen Modellpfad an.';
+              this.messageType = 'error';
+              return;
+            }
+            const formData = new FormData();
+            formData.append('model_path', this.exportForm.model_path);
+            formData.append('output_path', this.exportForm.output_path);
+            if (this.exportForm.model_file) {
+              formData.append('model_file', this.exportForm.model_file);
+            }
+            try {
+              const result = await this.fetchJson('/api/export', { method: 'POST', body: formData });
+              this.message = `Export erfolgreich: ${result.output_file}`;
+              this.messageType = 'success';
+              await this.loadModels();
+            } catch (error) {
+              this.message = error.message;
+              this.messageType = 'error';
+            }
+          },
+          pickFolder(type) {
+            if (type === 'dataset') this.$refs.datasetFolder.click();
+            if (type === 'target') this.$refs.targetFolder.click();
+            if (type === 'preprocessed') this.$refs.preprocessedFolder.click();
+            if (type === 'trained_output') this.$refs.trainedOutputFolder.click();
+            if (type === 'export') this.$refs.outputFolder.click();
+          },
+          onDatasetFolderPick(event) {
+            const files = Array.from(event.target.files || []);
+            if (!files.length) return;
+            this.preprocessForm.dataset_files = files;
+            this.preprocessForm.dataset_path = this.getFolderPath(files);
+          },
+          onTargetFolderPick(event) {
+            const files = Array.from(event.target.files || []);
+            if (!files.length) return;
+            const chosenPath = this.getFolderPath(files);
+            this.preprocessForm.target_path = chosenPath;
+            this.trainForm.preprocessed_path = chosenPath;
+          },
+          onPreprocessedFolderPick(event) {
+            const files = Array.from(event.target.files || []);
+            if (!files.length) return;
+            const chosenPath = this.getFolderPath(files);
+            this.trainForm.preprocessed_path = chosenPath;
+          },
+          pickFile(type) {
+            if (type === 'model') this.$refs.modelFile.click();
+          },
+          onModelFilePick(event) {
+            const file = event.target.files?.[0];
+            if (!file) return;
+            this.exportForm.model_file = file;
+            this.exportForm.model_path = file.name;
+          },
+          onTrainedOutputFolderPick(event) {
+            const files = Array.from(event.target.files || []);
+            if (!files.length) return;
+            this.trainForm.model_output_path = files[0].webkitRelativePath?.split('/')[0] || files[0].name;
+          },
+          onOutputFolderPick(event) {
+            const files = Array.from(event.target.files || []);
+            if (!files.length) return;
+            this.exportForm.output_path = files[0].webkitRelativePath?.split('/')[0] || files[0].name;
+          },
+        },
+      }).mount('#app');
+    </script>
   </body>
 </html>

@@ -1,5 +1,6 @@
 import platform
 import subprocess
+from pathlib import Path
 from typing import Dict, Optional
 
 DEFAULT_DISTRO = "Ubuntu-24.04"
@@ -27,6 +28,8 @@ def is_wsl() -> bool:
 
 
 def check_wsl_running(distro: str = DEFAULT_DISTRO) -> bool:
+    if is_wsl():
+        return True
     if not is_windows():
         return False
     result = _run_command(["wsl", "-l", "-v"])
@@ -36,6 +39,8 @@ def check_wsl_running(distro: str = DEFAULT_DISTRO) -> bool:
 
 
 def start_wsl(distro: str = DEFAULT_DISTRO) -> bool:
+    if is_wsl():
+        return True
     if not is_windows():
         return False
     result = _run_command(["wsl", "-d", distro, "--", "bash", "-lc", "echo started"], check=False)
@@ -68,6 +73,39 @@ def get_cuda_available() -> bool:
         return torch.cuda.is_available()
     except Exception:
         return False
+
+
+def check_rave_installed() -> bool:
+    activate_command = "source .venv/bin/activate && command -v rave"
+    if is_wsl():
+        result = _run_command(["bash", "-lc", activate_command], check=False)
+        return bool(result and result.returncode == 0 and result.stdout.strip())
+
+    if is_windows():
+        result = _run_command([
+            "wsl",
+            "-d",
+            DEFAULT_DISTRO,
+            "--",
+            "bash",
+            "-lc",
+            activate_command,
+        ], check=False)
+        return bool(result and result.returncode == 0 and result.stdout.strip())
+
+    return False
+
+
+def get_wsl_path(path: str) -> str:
+    if is_wsl():
+        return path
+
+    p = Path(path)
+    if p.drive:
+        drive = p.drive.rstrip(":").lower()
+        relative = p.as_posix()[3:]
+        return f"/mnt/{drive}/{relative}"
+    return path
 
 
 def get_environment_info() -> Dict[str, Optional[str]]:
