@@ -4,8 +4,8 @@ from pathlib import Path
 
 from data_pipeline import preprocess_dataset, scan_dataset, validate_dataset_folder
 from export_neutone import export_to_neutone, validate_neutone_package
-from train_gui import TrainingConfig, TrainingManager
-from wsl_manager import check_wsl_running, is_windows
+from train_gui import TrainingConfig, TrainingManager, RAVE_PRESETS
+from windows_manager import is_windows
 
 
 def test_scan_dataset():
@@ -55,10 +55,80 @@ def test_training_manager():
     manager.stop_training()
 
 
-def test_wsl_running():
-    if not is_windows():
-        return
-    assert isinstance(check_wsl_running(), bool)
+def test_windows_environment():
+    """Test Windows environment detection."""
+    assert is_windows() == True  # We're on Windows
+    from windows_manager import get_environment_info
+    env = get_environment_info()
+    assert env["is_windows"] == True
+    assert "platform" in env
+    assert "cuda_available" in env
+    assert "rave_available" in env
+
+
+def test_rave_presets():
+    """Test that RAVE presets are properly defined with all required parameters."""
+    required_keys = [
+        "latent_size", "n_bands", "capacity", "encoder", "decoder",
+        "discriminator", "phase_1_duration", "gan_loss", "valid_signal_crop",
+        "feature_matching_fun", "num_skipped_features", "audio_distance",
+        "config_file", "description", "min_vram_gb"
+    ]
+    
+    for preset_name, preset in RAVE_PRESETS.items():
+        for key in required_keys:
+            assert key in preset, f"Missing key '{key}' in preset '{preset_name}'"
+        
+        # Validate value ranges
+        assert 2 <= preset["latent_size"] <= 64, f"Invalid latent_size in {preset_name}"
+        assert preset["n_bands"] > 0, f"Invalid n_bands in {preset_name}"
+        assert preset["min_vram_gb"] >= 0, f"Invalid min_vram_gb in {preset_name}"
+
+
+def test_training_config_with_rave_preset():
+    """Test that TrainingConfig can be created with RAVE preset parameters."""
+    preset = RAVE_PRESETS.get("rave_mini", {})
+    
+    config = TrainingConfig(
+        model_name="rave_mini",
+        preprocessed_path="processed",
+        batch_size=4,
+        epochs=3,
+        learning_rate=0.0002,
+        training_type="rave",
+        use_gpu=True,
+        output_path="trained_models/model.pt",
+        latent_size=preset.get("latent_size", 32),
+        n_bands=preset.get("n_bands", 16),
+        capacity=preset.get("capacity", 32),
+        encoder=preset.get("encoder", "VariationalEncoder"),
+        decoder=preset.get("decoder", "Generator"),
+        discriminator=preset.get("discriminator", "MultiScaleDiscriminator"),
+        phase_1_duration=preset.get("phase_1_duration", 200000),
+        gan_loss=preset.get("gan_loss", "hinge"),
+        valid_signal_crop=preset.get("valid_signal_crop", 16384),
+        feature_matching_fun=preset.get("feature_matching_fun", "feature_matching_l1"),
+        num_skipped_features=preset.get("num_skipped_features", 6),
+        audio_distance=preset.get("audio_distance", "multiband_audio_distance"),
+        config_file=preset.get("config_file", "v1.gin"),
+        description=preset.get("description", ""),
+        min_vram_gb=preset.get("min_vram_gb", 8),
+    )
+    
+    assert config.model_name == "rave_mini"
+    assert config.latent_size == 32
+    assert config.config_file == "v1.gin"
+
+
+def test_rave_import():
+    """Test that RAVE can be imported and basic model creation works."""
+    try:
+        from rave import RAVE
+        # Check that RAVE class is available
+        assert RAVE is not None
+    except ImportError:
+        # RAVE not installed, skip this test
+        pass
 
 
 if __name__ == "__main__":
@@ -67,5 +137,8 @@ if __name__ == "__main__":
     test_preprocess_dataset()
     test_export_to_neutone()
     test_training_manager()
-    test_wsl_running()
+    test_windows_environment()
+    test_rave_presets()
+    test_training_config_with_rave_preset()
+    test_rave_import()
     print("All tests completed.")

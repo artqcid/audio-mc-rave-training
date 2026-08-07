@@ -50,10 +50,10 @@ def validate_dataset_folder(dataset_path: str) -> bool:
 
 
 def preprocess_audio_file(source_path: str, target_dir: str, sample_rate: int = 44100) -> str:
-    target_dir_path = Path(target_dir)
+    target_dir_path = Path(target_dir).resolve()
     target_dir_path.mkdir(parents=True, exist_ok=True)
 
-    source_path_obj = Path(source_path)
+    source_path_obj = Path(source_path).resolve()
     target_path = target_dir_path / f"{source_path_obj.stem}.wav"
 
     y, sr = librosa.load(str(source_path_obj), sr=sample_rate, mono=True)
@@ -63,19 +63,26 @@ def preprocess_audio_file(source_path: str, target_dir: str, sample_rate: int = 
     return str(target_path)
 
 
-def preprocess_dataset(dataset_path: str, target_path: str = "processed") -> str:
+def preprocess_dataset(dataset_path: str, target_path: str = "processed", progress_callback=None) -> str:
     files = scan_dataset(dataset_path)
     if not files:
         raise ValueError("Dataset folder contains no supported audio files.")
 
-    target_folder = Path(target_path)
+    target_folder = Path(target_path).resolve()
     target_folder.mkdir(parents=True, exist_ok=True)
     processed_files = []
-    for audio in files:
+    total_files = len(files)
+    for i, audio in enumerate(files, 1):
         try:
-            processed_files.append(preprocess_audio_file(audio.path, target_path))
-        except Exception:
+            if progress_callback:
+                progress_callback(f"Verarbeite Datei {i}/{total_files}: {Path(audio.path).name}")
+            processed_files.append(preprocess_audio_file(audio.path, str(target_folder)))
+            if progress_callback:
+                progress_callback(f"Abgeschlossen: {Path(audio.path).name}")
+        except Exception as e:
+            if progress_callback:
+                progress_callback(f"Fehler bei {Path(audio.path).name}: {e}")
             continue
     if not processed_files:
         raise RuntimeError("Preprocessing konnte keine Datei verarbeiten.")
-    return str(target_folder.resolve())
+    return str(target_folder)

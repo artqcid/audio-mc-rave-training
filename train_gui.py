@@ -2,6 +2,7 @@ import shlex
 import subprocess
 import threading
 import time
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Callable
@@ -9,16 +10,19 @@ from typing import Dict, List, Optional, Callable
 # RAVE Model Configuration Presets
 # Based on RAVE documentation: https://github.com/acids-ircam/RAVE
 # These presets define the architecture parameters for different model sizes
+# RAVE uses Gin configuration files - these presets map to the gin configs
 
 RAVE_PRESETS = {
     "raspberry": {
+        "config_file": "raspberry.gin",
         "latent_size": 16,
         "n_bands": 16,
+        "capacity": 16,
         "input_mode": "pqmf",
         "output_mode": "pqmf",
-        "encoder": "ConvNet",
-        "decoder": "ConvNet",
-        "discriminator": "MultiScaleSpectralDiscriminator",
+        "encoder": "VariationalEncoder",
+        "decoder": "Generator",
+        "discriminator": "MultiScaleDiscriminator",
         "phase_1_duration": 100000,
         "gan_loss": "hinge",
         "valid_signal_crop": 16384,
@@ -26,15 +30,18 @@ RAVE_PRESETS = {
         "num_skipped_features": 6,
         "audio_distance": "multiband_audio_distance",
         "description": "Mini-Modell für 6 GB VRAM, optimiert für Sound-Design",
+        "min_vram_gb": 6,
     },
     "rave_mini": {
+        "config_file": "v1.gin",
         "latent_size": 32,
         "n_bands": 16,
+        "capacity": 32,
         "input_mode": "pqmf",
         "output_mode": "pqmf",
-        "encoder": "EncoderV2",
-        "decoder": "GeneratorV2",
-        "discriminator": "MultiScaleSpectralDiscriminator",
+        "encoder": "VariationalEncoder",
+        "decoder": "Generator",
+        "discriminator": "MultiScaleDiscriminator",
         "phase_1_duration": 200000,
         "gan_loss": "hinge",
         "valid_signal_crop": 16384,
@@ -42,10 +49,13 @@ RAVE_PRESETS = {
         "num_skipped_features": 6,
         "audio_distance": "multiband_audio_distance",
         "description": "Standard-Modell für 8 GB VRAM",
+        "min_vram_gb": 8,
     },
     "rave_small": {
+        "config_file": "v2_small.gin",
         "latent_size": 64,
         "n_bands": 16,
+        "capacity": 64,
         "input_mode": "pqmf",
         "output_mode": "pqmf",
         "encoder": "EncoderV2",
@@ -58,10 +68,13 @@ RAVE_PRESETS = {
         "num_skipped_features": 6,
         "audio_distance": "multiband_audio_distance",
         "description": "Größeres Modell für 12 GB VRAM",
+        "min_vram_gb": 12,
     },
     "v2_small": {
+        "config_file": "v2_small.gin",
         "latent_size": 64,
         "n_bands": 16,
+        "capacity": 64,
         "input_mode": "pqmf",
         "output_mode": "pqmf",
         "encoder": "EncoderV2",
@@ -74,10 +87,13 @@ RAVE_PRESETS = {
         "num_skipped_features": 6,
         "audio_distance": "multiband_audio_distance",
         "description": "v2-Modell für höhere Qualität",
+        "min_vram_gb": 12,
     },
     "causal": {
+        "config_file": "causal.gin",
         "latent_size": 32,
         "n_bands": 16,
+        "capacity": 32,
         "input_mode": "pqmf",
         "output_mode": "pqmf",
         "encoder": "EncoderV2",
@@ -90,10 +106,13 @@ RAVE_PRESETS = {
         "num_skipped_features": 6,
         "audio_distance": "multiband_audio_distance",
         "description": "Niedrige Latenz für Live-Performance",
+        "min_vram_gb": 8,
     },
     "onnx": {
+        "config_file": "onnx.gin",
         "latent_size": 16,
         "n_bands": 16,
+        "capacity": 32,
         "input_mode": "pqmf",
         "output_mode": "pqmf",
         "encoder": "ConvNet",
@@ -106,6 +125,7 @@ RAVE_PRESETS = {
         "num_skipped_features": 6,
         "audio_distance": "multiband_audio_distance",
         "description": "Leichtgewichtiges ONNX-kompatibles Modell",
+        "min_vram_gb": 6,
     },
 }
 
@@ -120,21 +140,27 @@ class TrainingConfig:
     training_type: str = "rave"
     use_gpu: bool = True
     output_path: str = "trained_models/model.pt"
-    latent_size: int = 16
     # RAVE-specific configuration
+    latent_size: int = 32
     n_bands: int = 16
+    capacity: int = 32
     input_mode: str = "pqmf"
     output_mode: str = "pqmf"
-    encoder: str = "EncoderV2"
-    decoder: str = "GeneratorV2"
-    discriminator: str = "MultiScaleSpectralDiscriminator"
+    encoder: str = "VariationalEncoder"
+    decoder: str = "Generator"
+    discriminator: str = "MultiScaleDiscriminator"
     phase_1_duration: int = 200000
     gan_loss: str = "hinge"
     valid_signal_crop: int = 16384
     feature_matching_fun: str = "feature_matching_l1"
     num_skipped_features: int = 6
     audio_distance: str = "multiband_audio_distance"
+    config_file: str = "v1.gin"
     description: str = ""
+    min_vram_gb: int = 8
+    # Training mode
+    training_mode: str = "new"  # 'new' or 'resume'
+    checkpoint_path: str = ""
 
 
 @dataclass
@@ -162,7 +188,11 @@ class TrainingManager:
 
         self.current_job = TrainingJob(config=config, status="running", step=0, command=command)
         self._stop_event.clear()
-        self._append_log("Training gestartet mit Modell: {}".format(config.model_name))
+        
+        if config.training_mode == "resume":
+            self._append_log("Training fortgesetzt von Checkpoint: {}".format(config.checkpoint_path))
+        else:
+            self._append_log("Training gestartet mit Modell: {}".format(config.model_name))
 
         if command:
             self._thread = threading.Thread(target=self._run_training_command, daemon=True)
@@ -170,7 +200,8 @@ class TrainingManager:
             self._thread = threading.Thread(target=self._run_training_simulation, daemon=True)
 
         self._thread.start()
-        return {"message": "Training gestartet", "config": config.__dict__, "mode": "external" if command else "simulator"}
+        mode = "external" if command else "simulator"
+        return {"message": "Training gestartet", "config": config.__dict__, "mode": mode}
 
     def _append_log(self, message: str) -> None:
         if not self.current_job:
@@ -218,19 +249,26 @@ class TrainingManager:
         self._append_log(f"Führe externes Training aus: {self.current_job.command}")
         process = None
         try:
+            # Use shell=True for Windows command execution with proper encoding
             process = subprocess.Popen(
-                shlex.split(self.current_job.command),
+                self.current_job.command,
                 cwd=Path(self.current_job.config.preprocessed_path).parent,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                universal_newlines=True,
+                text=True,
+                encoding='utf-8',
+                errors='replace',
                 bufsize=1,
+                shell=True,
+                env={**os.environ, "PYTHONIOENCODING": "utf-8"}
             )
             self.current_job.process = process
 
             for line in iter(process.stdout.readline, ""):
                 if line:
-                    self._append_log(line.rstrip())
+                    # Normalize line endings (Windows \r\n -> \n)
+                    clean_line = line.rstrip('\r\n')
+                    self._append_log(clean_line)
                 if self._stop_event.is_set():
                     break
 
